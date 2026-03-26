@@ -220,7 +220,85 @@ Optional env in frontend:
 
 ---
 
-## 8) Verification checklist
+## 8) Deployment guide (Vercel + Render)
+
+This project is split-deployed:
+
+- **Frontend:** Vercel (Vite React app)
+- **Backend:** Render (FastAPI service)
+
+### Recommended production URLs
+
+- Frontend (stable custom project domain):  
+  `https://graph-llm-system.vercel.app`
+- Backend (Render web service):  
+  `https://graph-llm-system-qixc.onrender.com`
+
+### Why this split
+
+- Vercel gives fast static frontend hosting and straightforward environment injection for Vite.
+- Render runs the Python API service and supports environment-managed configuration and redeploys.
+
+### Frontend deployment options
+
+- **Option A (recommended): Vercel**
+  - Root directory: `frontend`
+  - Build command: `npm run build`
+  - Output directory: `dist`
+  - Env var: `VITE_API_BASE=https://graph-llm-system-qixc.onrender.com`
+
+- **Option B (alternative): Netlify / Cloudflare Pages**
+  - Same Vite build settings
+  - Equivalent frontend env var still required (`VITE_API_BASE`)
+
+### Backend deployment options
+
+- **Option A (recommended): Render**
+  - Runtime: Python
+  - Start command example: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+  - Root directory: `backend`
+  - Env vars:
+    - `LLM_PROVIDER=gemini` (or groq/openrouter)
+    - provider API key(s)
+    - `CORS_ORIGINS=https://graph-llm-system.vercel.app`
+
+- **Option B (alternative): Railway / Fly.io / Azure App Service**
+  - Same FastAPI startup and env model
+  - Ensure CORS includes your frontend origin
+
+### Production env checklist
+
+#### Vercel
+- `VITE_API_BASE=https://graph-llm-system-qixc.onrender.com`
+
+#### Render
+- `CORS_ORIGINS=https://graph-llm-system.vercel.app`
+- `LLM_PROVIDER=<gemini|groq|openrouter>`
+- matching provider key:
+  - `GEMINI_API_KEY` or
+  - `GROQ_API_KEY` or
+  - `OPENROUTER_API_KEY`
+
+### Post-deploy verification
+
+1. Open backend health:
+   - `https://graph-llm-system-qixc.onrender.com/health`
+2. Open frontend:
+   - `https://graph-llm-system.vercel.app`
+3. In browser network tab, confirm graph/query requests go to Render URL (not `127.0.0.1`).
+4. Test chat with:
+   - `Which products are billed the most?`
+   - `Trace the order flow for order 740506`
+   - `Trace billing 91150187`
+
+### Important deployment note
+
+Render free instances can spin down after inactivity and may take time to wake (cold start).  
+This can delay first request responses but should not break functionality.
+
+---
+
+## 9) Verification checklist
 
 After startup, validate in this order:
 
@@ -236,7 +314,7 @@ After startup, validate in this order:
 
 ---
 
-## 9) Guardrails and reliability notes
+## 10) Guardrails and reliability notes
 
 - off-topic prompts are rejected
 - unsupported intents do not execute
@@ -246,7 +324,7 @@ After startup, validate in this order:
 
 ---
 
-## 10) Current scope and known boundaries
+## 11) Current scope and known boundaries
 
 - no authentication/authorization layer
 - no rate limiting by default
@@ -258,14 +336,14 @@ These are reasonable trade-offs for assignment scope and can be extended increme
 
 ---
 
-## 11) Challenges faced
+## 12) Challenges faced
 
 - **Fragmented references across exports:** Billing, delivery, and FI datasets do not always share one clean foreign key path. Some records reference delivery IDs, others reference order IDs or FI document IDs.
 - **Inconsistent identifier formats:** Item/document identifiers can appear with different padding and formatting, requiring normalization before join logic is reliable.
 - **Large graph rendering trade-offs:** Raw graph payloads can become heavy for browser rendering, so export limits and metadata truncation were added to keep the UI responsive.
 - **LLM reliability vs control:** Natural-language input is flexible, but execution must remain deterministic and safe. This required strict intent schemas, allow-listed parameters, and explicit rejection paths.
 
-## 12) Architectural decisions
+## 13) Architectural decisions
 
 - **Separation of concerns (`planner -> executor -> formatter`):** Intent interpretation is isolated from execution logic and response shaping, which improves debuggability and makes behavior easier to test.
 - **Graph-first business traversal:** O2C lifecycle questions map naturally to typed graph traversals, reducing repeated multi-table join complexity at query time.
@@ -275,7 +353,7 @@ These are reasonable trade-offs for assignment scope and can be extended increme
 
 ---
 
-## 13) Repository layout
+## 14) Repository layout
 
 ```text
 graph-llm-system/

@@ -374,13 +374,45 @@ These are reasonable trade-offs for assignment scope and can be extended increme
 
 ### LLM prompting strategy
 
-- LLM is used only for **intent + parameter extraction**, never as the final source of business facts.
-- Prompting is constrained with:
-  - explicit supported-intent list
-  - strict JSON output schema
-  - reject examples for off-topic prompts
-  - low-temperature generation and post-validation
-- Output is normalized and allow-listed before query execution.
+The LLM is used in a strictly controlled manner within the system.
+
+During development, AI tools were leveraged for code generation, refactoring, debugging, and design iteration, with manual validation at each critical stage to ensure correctness and alignment with requirements.
+
+At runtime, the LLM is **not used for answer generation**. Instead, it is constrained to a narrow role:
+
+- Translating natural language queries into structured query intents
+- Extracting relevant parameters (for example: `order_id`, limits)
+
+All business logic and final outputs are computed deterministically from the dataset via the query engine.
+
+#### Prompt design and guardrails
+
+The prompting strategy enforces a **closed, schema-driven interaction model**:
+
+- Explicit allow-list of supported intents
+- Strict JSON output schema (no free-form text)
+- Few-shot examples including both valid and rejected queries
+- Low-temperature generation to reduce variability
+- No dataset-specific values included in prompts (prevents hallucination)
+
+#### Post-processing and safety
+
+To further ensure correctness:
+
+- Server-side validation enforces intent and parameter constraints
+- Unknown or unsupported fields are dropped
+- Off-domain queries are rejected with safe responses
+- Execution is skipped unless parsing is valid
+
+#### Grounded execution
+
+All responses are:
+
+- Derived exclusively from `query_result`
+- Traceable via `data.result` and `trace`
+- Fully verifiable against the underlying dataset
+
+This ensures the system remains **data-backed, auditable, and free from hallucinated outputs**.
 
 ### Guardrails
 

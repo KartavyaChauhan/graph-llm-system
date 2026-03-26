@@ -16,6 +16,7 @@ from app.graph.types import EdgeType, NodeType
 from app.query.types import (
     INTENT_FIND_INCOMPLETE_ORDERS,
     INTENT_FIND_TOP_PRODUCTS_BY_BILLING,
+    INTENT_TRACE_BILLING_FLOW,
     INTENT_TRACE_ORDER_FLOW,
     ExecutionPlan,
     QueryError,
@@ -38,6 +39,8 @@ class QueryExecutor:
             return self._exec_trace_order(plan.steps[0], plan.steps[1] if len(plan.steps) > 1 else None)
         if plan.intent == INTENT_FIND_INCOMPLETE_ORDERS and op == "filter_orders_by_lifecycle_gaps":
             return self._exec_incomplete_orders(plan.steps[0])
+        if plan.intent == INTENT_TRACE_BILLING_FLOW and op == "trace_billing_document_flow":
+            return self._exec_trace_billing(plan.steps[0])
         return QueryError(code="unsupported_plan", message=f"Unsupported step op {op!r}.", details={"plan": plan.intent})
 
     def _exec_top_products(self, step: dict[str, Any]) -> dict[str, Any]:
@@ -236,4 +239,97 @@ class QueryExecutor:
             "matched_count": len(matched),
             "limit": limit,
             "rows": matched,
+        }
+
+    def _exec_trace_billing(self, step: dict[str, Any]) -> dict[str, Any]:
+        billing_document = str(step["billing_document"]).strip()
+        include_meta = bool(step.get("include_node_metadata", True))
+        max_paths = int(step.get("max_paths", 256))
+
+        iid = self._graph.normalize_invoice_node_id(billing_document)
+        if not self._graph.store.has_node(iid):
+            return {
+                "invoice_node_id": iid,
+                "billing_document": billing_document,
+                "found": False,
+                "paths": [],
+                "note": "Invoice/Billing node not present in graph (unknown billing document).",
+            }
+
+        g = self._graph.store
+        deliveries = g.predecessors(iid, edge_type=EdgeType.DELIVERY_HAS_INVOICE)
+        payments = g.successors(iid, edge_type=EdgeType.INVOICE_HAS_PAYMENT)
+        jes = g.successors(iid, edge_type=EdgeType.INVOICE_HAS_JOURNAL_ENTRY)
+
+        # Upstream orders come via delivery predecessors.
+        orders: list[str] = []
+        for d in deliveries:
+            for o in g.predecessors(d, edge_type=EdgeType.ORDER_HAS_DELIVERY):
+                if o not in orders:
+                    orders.append(o)
+
+        missing: list[str] = []
+        if not deliveries:
+            missing.append("no deliveries linked to invoice (DELIVERY_HAS_INVOICE)")
+        if deliveries and not orders:
+            missing.append("no orders linked to invoice via deliveries (ORDER_HAS_DELIVERY)")
+        if not jes:
+            missing.append("no journal entries linked to invoice (INVOICE_HAS_JOURNAL_ENTRY)")
+
+        # Enumerate paths: Order -> Delivery -> Invoice -> (JournalEntry?) -> (Payment?)
+        paths: list[list[str]] = []
+        for d in deliveries or [None]:
+            if len(paths) >= max_paths:
+                break
+            upstream_orders = orders
+            if d is not None:
+                upstream_orders = g.predecessors(d, edge_type=EdgeType.ORDER_HAS_DELIVERY) or []
+            if not upstream_orders:
+                upstream_orders = [None]
+            for o in upstream_orders:
+                if len(paths) >= max_paths:
+                    break
+                base = [x for x in (o, d, iid) if x]
+                if not jes and not payments:
+                    paths.append(base)
+                    continue
+                if jes:
+                    for je in jes:
+                        if len(paths) >= max_paths:
+                            break
+                        if payments:
+                            for p in payments:
+                                if len(paths) >= max_paths:
+                                    break
+                                paths.append(base + [je, p])
+                        else:
+                            paths.append(base + [je])
+                else:
+                    for p in payments:
+                        if len(paths) >= max_paths:
+                            break
+                        paths.append(base + [p])
+
+        payload = [
+            {
+                "node_ids": chain,
+                "edge_sequence": self._edge_labels_for_path(chain),
+                "nodes": [self._node_snapshot(nid, include_meta) for nid in chain],
+            }
+            for chain in paths
+        ]
+
+        return {
+            "invoice_node_id": iid,
+            "billing_document": billing_document,
+            "found": True,
+            "paths": payload,
+            "path_count": len(payload),
+            "summary": {
+                "delivery_ids": deliveries,
+                "order_ids": orders,
+                "journal_entry_ids": jes,
+                "payment_ids": payments,
+                "missing_links": missing,
+            },
         }

@@ -59,6 +59,17 @@ def build_answer_from_pipeline(pipeline: dict[str, Any]) -> str:
             return base + f" Gaps noted: {'; '.join(missing)}."
         return base
 
+    if intent == "trace_billing_flow":
+        if not result.get("found"):
+            return result.get("note") or "Billing document was not found in the loaded graph."
+        npaths = result.get("path_count", 0)
+        summ = result.get("summary") or {}
+        missing = summ.get("missing_links") or []
+        base = f"Traced billing document flow: {npaths} path(s) enumerated in the graph."
+        if missing:
+            return base + f" Gaps noted: {'; '.join(missing)}."
+        return base
+
     if intent == "find_incomplete_orders":
         matched = result.get("matched_count", 0)
         scanned = result.get("orders_scanned", 0)

@@ -90,6 +90,17 @@ export function extractHighlightedNodeIds(response) {
       ;(lc.invoice_ids || []).forEach((x) => x && ids.add(x))
       ;(lc.product_ids || []).forEach((x) => x && ids.add(x))
     }
+  } else if (intent === 'trace_billing_flow') {
+    for (const path of result.paths || []) {
+      for (const id of path.node_ids || []) {
+        if (id) ids.add(id)
+      }
+    }
+    const s = result.summary || {}
+    ;(s.order_ids || []).forEach((x) => x && ids.add(x))
+    ;(s.delivery_ids || []).forEach((x) => x && ids.add(x))
+    ;(s.journal_entry_ids || []).forEach((x) => x && ids.add(x))
+    ;(s.payment_ids || []).forEach((x) => x && ids.add(x))
   }
 
   return ids

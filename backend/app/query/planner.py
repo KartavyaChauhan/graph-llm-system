@@ -12,6 +12,7 @@ from typing import Any
 from app.query.types import (
     INTENT_FIND_INCOMPLETE_ORDERS,
     INTENT_FIND_TOP_PRODUCTS_BY_BILLING,
+    INTENT_TRACE_BILLING_FLOW,
     INTENT_TRACE_ORDER_FLOW,
     SUPPORTED_INTENTS,
     ExecutionPlan,
@@ -35,6 +36,8 @@ class QueryPlanner:
             return self._plan_trace_order(dict(parameters or {}))
         if intent == INTENT_FIND_INCOMPLETE_ORDERS:
             return self._plan_incomplete_orders(dict(parameters or {}))
+        if intent == INTENT_TRACE_BILLING_FLOW:
+            return self._plan_trace_billing(dict(parameters or {}))
 
         return QueryError(code="internal", message="Planner routing bug.", details={"intent": intent})
 
@@ -151,4 +154,42 @@ class QueryPlanner:
             human_readable=hr,
             steps=steps,
             data_sources=["GraphManager.iter_nodes_by_type(Order)", "GraphManager.order_lifecycle"],
+        )
+
+    def _plan_trace_billing(self, p: dict[str, Any]) -> ExecutionPlan | QueryError:
+        bid = p.get("billing_document") or p.get("invoice_id") or p.get("billing_id")
+        if bid is None or str(bid).strip() == "":
+            return QueryError(
+                code="missing_parameter",
+                message="trace_billing_flow requires 'billing_document' (invoice/billing number).",
+                details={},
+            )
+        billing_document = str(bid).strip()
+        include_metadata = bool(p.get("include_node_metadata", True))
+        max_paths = int(p.get("max_paths", 256))
+        max_paths = max(1, min(max_paths, 2000))
+        steps = [
+            {
+                "op": "trace_billing_document_flow",
+                "billing_document": billing_document,
+                "include_node_metadata": include_metadata,
+                "max_paths": max_paths,
+            }
+        ]
+        hr = (
+            f"Resolve billing document {billing_document!r} to an Invoice node; "
+            f"walk upstream to Delivery and Order, and downstream to Journal Entry and Payment when present; "
+            f"enumerate up to {max_paths} path variants; "
+            f"attach {'full' if include_metadata else 'minimal'} node metadata."
+        )
+        return ExecutionPlan(
+            intent=INTENT_TRACE_BILLING_FLOW,
+            parameters={
+                "billing_document": billing_document,
+                "include_node_metadata": include_metadata,
+                "max_paths": max_paths,
+            },
+            human_readable=hr,
+            steps=steps,
+            data_sources=["GraphManager (typed edges)"],
         )

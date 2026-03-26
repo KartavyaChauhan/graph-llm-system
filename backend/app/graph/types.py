@@ -18,6 +18,7 @@ class NodeType(str, Enum):
     DELIVERY = "Delivery"
     INVOICE = "Invoice"
     PAYMENT = "Payment"
+    JOURNAL_ENTRY = "JournalEntry"
     CUSTOMER = "Customer"
     PRODUCT = "Product"
     ADDRESS = "Address"
@@ -28,6 +29,7 @@ class EdgeType(str, Enum):
     ORDER_HAS_DELIVERY = "ORDER_HAS_DELIVERY"
     DELIVERY_HAS_INVOICE = "DELIVERY_HAS_INVOICE"
     INVOICE_HAS_PAYMENT = "INVOICE_HAS_PAYMENT"
+    INVOICE_HAS_JOURNAL_ENTRY = "INVOICE_HAS_JOURNAL_ENTRY"
     ORDER_CONTAINS_PRODUCT = "ORDER_CONTAINS_PRODUCT"
 
 
@@ -108,6 +110,10 @@ def invoice_node_id(billing_document: str) -> str:
 
 def payment_node_id(company_code: str, fiscal_year: str, clearing_accounting_document: str) -> str:
     return f"payment:{company_code.strip()}|{fiscal_year.strip()}|{clearing_accounting_document.strip()}"
+
+
+def journal_entry_node_id(company_code: str, fiscal_year: str, accounting_document: str) -> str:
+    return f"je:{company_code.strip()}|{fiscal_year.strip()}|{accounting_document.strip()}"
 
 
 def product_node_id(material: str) -> str:

@@ -402,6 +402,23 @@ class IntentTranslatorBase(ABC):
         elif intent == "find_incomplete_orders":
             clean = _pick(merged, {"criteria", "limit"})
             p.parameters = clean
+        elif intent == "trace_billing_flow":
+            clean = _pick(merged, {"billing_document", "invoice_id", "billing_id", "include_node_metadata", "max_paths"})
+            bid = clean.get("billing_document") or clean.get("invoice_id") or clean.get("billing_id")
+            if bid is None or str(bid).strip() == "":
+                return StructuredIntentJson(
+                    status="error",
+                    intent=intent,
+                    entity=p.entity or "invoice",
+                    reject_reason="missing_billing_document",
+                    user_guidance="Specify a billing document number to trace (e.g. trace billing 91150187).",
+                    parameters={},
+                    filters={},
+                )
+            clean["billing_document"] = str(bid).strip()
+            clean.pop("invoice_id", None)
+            clean.pop("billing_id", None)
+            p.parameters = clean
         else:
             p.parameters = {}
 

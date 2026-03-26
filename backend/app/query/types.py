@@ -10,11 +10,13 @@ from typing import Any, Optional
 INTENT_FIND_TOP_PRODUCTS_BY_BILLING = "find_top_products_by_billing"
 INTENT_TRACE_ORDER_FLOW = "trace_order_flow"
 INTENT_FIND_INCOMPLETE_ORDERS = "find_incomplete_orders"
+INTENT_TRACE_BILLING_FLOW = "trace_billing_flow"
 
 SUPPORTED_INTENTS: tuple[str, ...] = (
     INTENT_FIND_TOP_PRODUCTS_BY_BILLING,
     INTENT_TRACE_ORDER_FLOW,
     INTENT_FIND_INCOMPLETE_ORDERS,
+    INTENT_TRACE_BILLING_FLOW,
 )
 
 

@@ -51,6 +51,7 @@ from app.graph.types import (
     customer_node_id,
     delivery_node_id,
     invoice_node_id,
+    journal_entry_node_id,
     order_node_id,
     payment_node_id,
     product_node_id,
@@ -217,16 +218,92 @@ def build_graph_from_bundle(bundle: O2CDataBundle) -> tuple[GraphManager, GraphB
         store.add_node(iid, node_type=NodeType.INVOICE, metadata=_dump(hdr))
         _bump(report, NodeType.INVOICE.value, nodes=True)
 
+    # --- Journal entries (FI) + INVOICE_HAS_JOURNAL_ENTRY ---
+    #
+    # Create one node per (company_code, fiscal_year, accounting_document) and link any invoice that:
+    # - matches the billing header's posted FI document, OR
+    # - is referenced by AR journal entry lines (reference_document == billing_document)
+    #
+    # This enables the assignment trace: Sales Order -> Delivery -> Billing -> Journal Entry.
+    je_nodes_created: set[str] = set()
+    invoice_to_je: DefaultDict[str, set[str]] = defaultdict(set)
+
+    for bdoc, hdr in bundle.billing_documents.items():
+        if hdr.company_code and hdr.fiscal_year and hdr.accounting_document:
+            jeid = journal_entry_node_id(hdr.company_code, hdr.fiscal_year, hdr.accounting_document)
+            invoice_to_je[bdoc].add(jeid)
+
+    for _k, je in bundle.journal_entry_items.items():
+        ref = (je.reference_document or "").strip()
+        if ref and ref in bundle.billing_documents:
+            jeid = journal_entry_node_id(je.company_code, je.fiscal_year, je.accounting_document)
+            invoice_to_je[ref].add(jeid)
+
+    for _k, je in bundle.journal_entry_items.items():
+        jeid = journal_entry_node_id(je.company_code, je.fiscal_year, je.accounting_document)
+        if jeid in je_nodes_created:
+            continue
+        store.add_node(
+            jeid,
+            node_type=NodeType.JOURNAL_ENTRY,
+            metadata={
+                "company_code": je.company_code,
+                "fiscal_year": je.fiscal_year,
+                "accounting_document": je.accounting_document,
+                "accounting_document_type": je.accounting_document_type,
+                "posting_date": je.posting_date,
+                "document_date": je.document_date,
+            },
+        )
+        je_nodes_created.add(jeid)
+        _bump(report, NodeType.JOURNAL_ENTRY.value, nodes=True)
+
+    for bdoc, je_ids in invoice_to_je.items():
+        iid = invoice_node_id(bdoc)
+        if not store.has_node(iid):
+            continue
+        for jeid in sorted(je_ids):
+            if not store.has_node(jeid):
+                continue
+            store.add_edge(
+                iid,
+                jeid,
+                edge_type=EdgeType.INVOICE_HAS_JOURNAL_ENTRY,
+                attributes={"billing_document": bdoc},
+            )
+            _bump(report, EdgeType.INVOICE_HAS_JOURNAL_ENTRY.value, edges=True)
+
     seen_di: set[tuple[str, str]] = set()
     for (_b, _it), bit in bundle.billing_items.items():
-        dnid = delivery_node_id(bit.reference_sd_document)
+        # Usually the billing item references the delivery. In some extracts it references the sales order.
+        ref = (bit.reference_sd_document or "").strip()
+        dnid = delivery_node_id(ref)
         iid = invoice_node_id(bit.billing_document)
         if not store.has_node(dnid):
-            report.warnings.append(
-                f"Billing item {bit.billing_document}/{bit.billing_document_item} references delivery "
-                f"{bit.reference_sd_document!r} with no delivery node; skipped DELIVERY_HAS_INVOICE."
-            )
-            continue
+            # Fallback: if reference looks like an order and the order has exactly one delivery, link that.
+            oid = order_node_id(ref)
+            if store.has_node(oid):
+                ds = store.successors(oid, edge_type=EdgeType.ORDER_HAS_DELIVERY)
+                if len(ds) == 1:
+                    dnid = ds[0]
+                elif len(ds) > 1:
+                    report.warnings.append(
+                        f"Billing item {bit.billing_document}/{bit.billing_document_item} references order {ref!r} "
+                        f"with {len(ds)} deliveries; ambiguous, skipped DELIVERY_HAS_INVOICE."
+                    )
+                    continue
+                else:
+                    report.warnings.append(
+                        f"Billing item {bit.billing_document}/{bit.billing_document_item} references order {ref!r} "
+                        f"with no deliveries; skipped DELIVERY_HAS_INVOICE."
+                    )
+                    continue
+            else:
+                report.warnings.append(
+                    f"Billing item {bit.billing_document}/{bit.billing_document_item} references SD document "
+                    f"{ref!r} with no delivery/order node; skipped DELIVERY_HAS_INVOICE."
+                )
+                continue
         if not store.has_node(iid):
             report.warnings.append(f"Billing item references missing invoice node {iid}; skipped.")
             continue

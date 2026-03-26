@@ -353,7 +353,45 @@ These are reasonable trade-offs for assignment scope and can be extended increme
 
 ---
 
-## 14) Repository layout
+## 14) Design notes (required rationale)
+
+### Architecture decisions
+
+- The system is split into clear layers: ingestion (`db`) -> graph modeling (`graph`) -> deterministic query execution (`query`) -> API contracts (`api`) -> UI.
+- Planner/executor separation keeps natural-language interpretation decoupled from data execution, improving observability and maintainability.
+- The graph manager is exposed through a store abstraction, so traversal logic is stable even if storage implementation changes later.
+
+### Database/storage choice
+
+- This implementation uses **in-memory typed storage**:
+  - canonical records in `O2CDataBundle` dictionaries
+  - relationship graph in **NetworkX** (`NetworkXGraphStore`)
+- Why this choice:
+  - fast iteration for assignment scope
+  - direct support for relationship traversal queries (order lifecycle, path tracing)
+  - low operational overhead compared to introducing external databases for a take-home project
+- Trade-off: no persistence/auth/indexing layer yet (acceptable for assignment scope; straightforward to extend).
+
+### LLM prompting strategy
+
+- LLM is used only for **intent + parameter extraction**, never as the final source of business facts.
+- Prompting is constrained with:
+  - explicit supported-intent list
+  - strict JSON output schema
+  - reject examples for off-topic prompts
+  - low-temperature generation and post-validation
+- Output is normalized and allow-listed before query execution.
+
+### Guardrails
+
+- Domain restriction: non-O2C prompts are rejected.
+- Execution safety: only allow-listed intents execute.
+- Parameter safety: unknown/malformed fields are stripped or rejected.
+- Response safety: final answers are generated from query results, not free-form model narration.
+
+---
+
+## 15) Repository layout
 
 ```text
 graph-llm-system/
